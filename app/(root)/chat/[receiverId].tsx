@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -28,6 +29,7 @@ import {
   connectWebSocket,
   sendChatMessage,
   subscribeChatToMessages,
+  disconnectWebSocket,
 } from "@/api/websocket";
 
 export default function ChatDetailScreen() {
@@ -44,10 +46,19 @@ export default function ChatDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     initializeChat();
+    
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      disconnectWebSocket();
+    };
   }, []);
 
   // Clear chat badge when entering specific chat
@@ -57,6 +68,11 @@ export default function ChatDetailScreen() {
     }, [dispatch])
   );
 
+  // Also clear badge when component mounts
+  useEffect(() => {
+    dispatch(clearBadge('chat'));
+  }, [dispatch]);
+
   const initializeChat = async () => {
     try {
       const userId = await AsyncStorage.getItem("userId");
@@ -64,34 +80,7 @@ export default function ChatDetailScreen() {
 
       if (userId && receiverId && productId) {
         await fetchChatHistory(receiverId, productId);
-
-        // Connect WebSocket with proper error handling
-        connectWebSocket(() => {
-          // Subscribe to this user's incoming messages
-          subscribeChatToMessages(userId, (msg) => {
-            try {
-              const received = JSON.parse(msg.body);
-
-              // Filter messages based on receiver & product
-              if (
-                received.senderId === receiverId &&
-                received.productId === parseInt(productId)
-              ) {
-                setMessages((prev) => {
-                  // Avoid duplicate messages
-                  const exists = prev.some(m => m.id === received.id);
-                  if (exists) return prev;
-                  return [...prev, received];
-                });
-                setTimeout(() => {
-                  flatListRef.current?.scrollToEnd({ animated: true });
-                }, 100);
-              }
-            } catch (error) {
-              console.error("Error parsing WebSocket message:", error);
-            }
-          });
-        });
+        setupWebSocketConnection(userId);
       }
     } catch (error) {
       console.error("Failed to initialize chat:", error);
@@ -100,16 +89,69 @@ export default function ChatDetailScreen() {
     }
   };
 
+  const setupWebSocketConnection = (userId: string) => {
+    connectWebSocket(() => {
+      setIsConnected(true);
+      
+      // Subscribe to this user's incoming messages
+      subscribeChatToMessages(userId, (msg) => {
+        try {
+          const received = JSON.parse(msg.body);
+
+          // Filter messages based on receiver & product
+          if (
+            received.senderId === receiverId &&
+            received.productId === parseInt(productId)
+          ) {
+            setMessages((prev) => {
+              // Avoid duplicate messages
+              const exists = prev.some(m => 
+                (m.id && m.id === received.id) || 
+                (m.timestamp === received.timestamp && m.content === received.content)
+              );
+              if (exists) return prev;
+              
+              const newMessages = [...prev, received].sort(
+                (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+              );
+              return newMessages;
+            });
+            
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }, 100);
+          }
+        } catch (error) {
+          console.error("Error parsing WebSocket message:", error);
+        }
+      });
+    });
+  };
+
+  const handleConnectionError = () => {
+    setIsConnected(false);
+    
+    // Attempt to reconnect after 3 seconds
+    reconnectTimeoutRef.current = setTimeout(() => {
+      if (currentUserId) {
+        console.log("Attempting to reconnect WebSocket...");
+        setupWebSocketConnection(currentUserId);
+      }
+    }, 3000);
+  };
+
   const fetchChatHistory = async (partnerId: string, prodId: string) => {
     try {
       const history = await getChatHistory(partnerId);
       if (history && Array.isArray(history)) {
-        // Sort messages by timestamp
-        const sortedMessages = history.sort(
+        // Filter messages for this specific product and sort by timestamp
+        const filteredMessages = history
+          .filter(msg => msg.productId === parseInt(productId))
+          .sort(
           (a, b) =>
             new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         );
-        setMessages(sortedMessages);
+        setMessages(filteredMessages);
 
         // Scroll to bottom after loading messages
         setTimeout(() => {
@@ -125,6 +167,11 @@ export default function ChatDetailScreen() {
 
   const sendMessage = async () => {
     if (!newMessage.trim() || sending || !currentUserId) return;
+
+    if (!isConnected) {
+      Alert.alert("Connection Error", "Unable to send message. Please check your connection.");
+      return;
+    }
 
     setSending(true);
 
@@ -159,7 +206,8 @@ export default function ChatDetailScreen() {
       console.error("Failed to send message:", error);
       // Remove message from local state if sending failed
       setMessages((prev) => prev.filter((msg) => msg.id !== message.id));
-      alert("Failed to send message. Please try again.");
+      Alert.alert("Error", "Failed to send message. Please try again.");
+      handleConnectionError();
     } finally {
       setSending(false);
     }
@@ -254,7 +302,7 @@ export default function ChatDetailScreen() {
               {receiverName}
             </Text>
             <Text style={[styles.headerStatus, { color: `${colors.headerText}CC` }]}>
-              Online
+              {isConnected ? "Online" : "Connecting..."}
             </Text>
           </View>
         </View>
@@ -281,11 +329,11 @@ export default function ChatDetailScreen() {
 
         <TouchableOpacity
           onPress={sendMessage}
-          disabled={!newMessage.trim() || sending}
+          disabled={!newMessage.trim() || sending || !isConnected}
           style={[
             styles.sendButton,
             { backgroundColor: colors.primary },
-            (!newMessage.trim() || sending) && styles.sendButtonDisabled,
+            (!newMessage.trim() || sending || !isConnected) && styles.sendButtonDisabled,
           ]}
         >
           {sending ? (
@@ -319,7 +367,7 @@ export default function ChatDetailScreen() {
       <FlatList
         ref={flatListRef}
         data={messages}
-        keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
+        keyExtractor={(item, index) => item.id?.toString() || `${item.timestamp}-${index}`}
         renderItem={renderMessage}
         contentContainerStyle={styles.messagesContainer}
         showsVerticalScrollIndicator={false}

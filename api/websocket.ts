@@ -5,13 +5,15 @@ import Constants from "expo-constants";
 import { logger } from "@/utils/logger";
 
 let stompClient: Client | null = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 const WS_URL = `http://192.168.1.27:8081/ws`;
 
 /**
  * Connect to WebSocket server using SockJS and STOMP
  */
-export const connectWebSocket = (onReady: () => void) => {
+export const connectWebSocket = (onReady: () => void, onError?: () => void) => {
   // Disconnect existing connection if any
   if (stompClient && stompClient.connected) {
     stompClient.deactivate();
@@ -26,23 +28,34 @@ export const connectWebSocket = (onReady: () => void) => {
     heartbeatOutgoing: 4000,
     onConnect: () => {
       logger.wsConnect(WS_URL);
+      reconnectAttempts = 0;
       onReady(); // trigger subscriptions
     },
     onDisconnect: () => {
       logger.wsDisconnect(WS_URL);
-      // Attempt to reconnect after 3 seconds
-      setTimeout(() => {
-        if (stompClient && !stompClient.connected) {
-          logger.info("Attempting to reconnect WebSocket...");
-          stompClient.activate();
-        }
-      }, 3000);
+      
+      // Attempt to reconnect with exponential backoff
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+        setTimeout(() => {
+          if (stompClient && !stompClient.connected) {
+            reconnectAttempts++;
+            logger.info(`Attempting to reconnect WebSocket... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+            stompClient.activate();
+          }
+        }, delay);
+      } else {
+        logger.error("Max reconnection attempts reached");
+        onError?.();
+      }
     },
     onStompError: (frame) => {
       logger.wsError(frame);
+      onError?.();
     },
     onWebSocketError: (error) => {
       logger.wsError(error);
+      onError?.();
     },
   });
 
@@ -111,6 +124,8 @@ export const disconnectWebSocket = () => {
     logger.wsDisconnect(WS_URL);
     stompClient.deactivate();
   }
+  stompClient = null;
+  reconnectAttempts = 0;
 };
 
 /**
@@ -123,16 +138,32 @@ export const sendChatMessage = (chatMessage: {
   product: { id: number };
 }) => {
   if (!stompClient?.connected) {
-    logger.error("Cannot send message: WebSocket not connected");
+    logger.warn("WebSocket not connected, cannot subscribe to messages");
+    throw new Error("WebSocket not connected");
     return;
+  }
   }
 
   const destination = "/app/chat.send";
 
   stompClient.publish({
     destination,
-    body: JSON.stringify(chatMessage),
+  if (!stompClient?.connected) {
+    logger.warn("WebSocket not connected, cannot subscribe to seller");
+    return;
+  }
+/**
+ * Check if WebSocket is connected
+ */
+export const isWebSocketConnected = (): boolean => {
+  return stompClient?.connected || false;
+};
   });
 
   logger.info("Chat message sent", { destination, chatMessage });
 };
+
+  if (!stompClient?.connected) {
+    logger.warn("WebSocket not connected, cannot subscribe to buyer");
+    return;
+  }
