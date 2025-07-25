@@ -2,7 +2,7 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { ChatMessage } from "@/api/types";
 
 interface ChatState {
-  conversations: Record<string, ChatMessage[]>; // key: "userId1-userId2-productId"
+  conversations: Record<string, ChatMessage[]>; // key: "partnerId" or "userId1-userId2"
   activeConversation: string | null;
   loading: boolean;
 }

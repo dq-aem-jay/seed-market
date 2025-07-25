@@ -162,24 +162,13 @@ export interface ChatMessage {
   receiverProfileImageUrl?: string;
   content: string;
   timestamp: string;
-  productId: number;
+  productId?: number;
 }
-
-// export interface ChatUser {
-//   id: string; // mapped from partnerId
-//   name: string; // mapped from partnerName
-//   profileImageUrl: string | null;
-//   productId: number;
-//   lastMessage: string;
-//   lastMessageTime: string;
-//   unreadCount: number;
-// }
 
 export interface ChatConversation {
   partnerId: string;
   partnerName: string;
   profileImageUrl: string | null;
-  productId: number;
   lastMessage: string;
   lastMessageTime: string; // ISO string
 }

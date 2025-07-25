@@ -19,13 +19,8 @@ import { useFocusEffect } from "expo-router";
 import { useCallback } from "react";
 import { useDarkMode } from "@/app/context/DarkModeContext";
 
-import { getAllUsers, getChatConversations } from "@/api/services";
-import { ChatConversation, UserModel } from "@/api/types";
-import { 
-  connectWebSocket, 
-  subscribeChatToMessages,
-  disconnectWebSocket 
-} from "@/api/websocket";
+import { getChatConversations } from "@/api/services";
+import { ChatConversation } from "@/api/types";
 
 import LoadingSpinner from "@/app/components/ui/LoadingSpinner";
 import Input from "@/app/components/ui/Input";
@@ -38,7 +33,6 @@ interface ChatUser {
   lastMessage: string;
   lastMessageTime: string;
   unreadCount: number;
-  productId: number;
 }
 
 export default function ChatScreen() {
@@ -54,11 +48,6 @@ export default function ChatScreen() {
   useEffect(() => {
     fetchConversations();
     getCurrentUserId();
-    setupWebSocketConnection();
-    
-    return () => {
-      disconnectWebSocket();
-    };
   }, []);
 
   // Clear chat badge when screen is focused
@@ -91,44 +80,6 @@ export default function ChatScreen() {
     setCurrentUserId(userId);
   };
 
-  const setupWebSocketConnection = async () => {
-    const userId = await AsyncStorage.getItem("userId");
-    if (!userId) return;
-
-    connectWebSocket(() => {
-      subscribeChatToMessages(userId, (msg) => {
-        try {
-          const chatMessage = JSON.parse(msg.body);
-          // Update conversation list with new message
-          setUsers(prevUsers => {
-            const updatedUsers = prevUsers.map(user => {
-              if (user.id === chatMessage.senderId && user.productId === chatMessage.productId) {
-                return {
-                  ...user,
-                  lastMessage: chatMessage.content,
-                  lastMessageTime: new Date(chatMessage.timestamp).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }),
-                  unreadCount: user.unreadCount + 1,
-                };
-              }
-              return user;
-            });
-            
-            // Sort by most recent message
-            return updatedUsers.sort((a, b) => {
-              const timeA = new Date(`1970/01/01 ${a.lastMessageTime}`).getTime();
-              const timeB = new Date(`1970/01/01 ${b.lastMessageTime}`).getTime();
-              return timeB - timeA;
-            });
-          });
-        } catch (error) {
-          console.error("Error parsing WebSocket message:", error);
-        }
-      });
-    });
-  };
 
   const fetchConversations = async () => {
     try {
@@ -138,24 +89,14 @@ export default function ChatScreen() {
 
       const conversations: ChatConversation[] = await getChatConversations();
 
-      // Deduplicate by partnerId + productId
-      const uniqueMap = new Map<string, ChatConversation>();
-      for (const conv of conversations) {
-        const key = `${conv.partnerId}-${conv.productId}`;
-        if (!uniqueMap.has(key)) {
-          uniqueMap.set(key, conv);
-        }
-      }
-
-      const chatUsers: ChatUser[] = Array.from(uniqueMap.values())
+      const chatUsers: ChatUser[] = conversations
         .sort((a, b) => {
           // Sort by lastMessageTime (newest first)
           const timeA = new Date(a.lastMessageTime).getTime();
           const timeB = new Date(b.lastMessageTime).getTime();
           return timeB - timeA;
         })
-        .map(
-        (conv) => ({
+        .map((conv) => ({
           id: conv.partnerId,
           name: conv.partnerName,
           profileImageUrl: conv.profileImageUrl,
@@ -168,9 +109,7 @@ export default function ChatScreen() {
             }
           ),
           unreadCount: Math.floor(Math.random() * 3), // simulated
-          productId: conv.productId,
-        })
-      );
+        }));
 
       setUsers(chatUsers);
     } catch (err) {
@@ -190,7 +129,7 @@ export default function ChatScreen() {
     // Clear unread count for this conversation
     setUsers(prevUsers => 
       prevUsers.map(u => 
-        u.id === user.id && u.productId === user.productId 
+        u.id === user.id 
           ? { ...u, unreadCount: 0 }
           : u
       )
@@ -201,7 +140,7 @@ export default function ChatScreen() {
       params: {
         receiverId: user.id!,
         receiverName: user.name,
-        productId: user.productId.toString(),
+        productId: "0", // Default product ID since not provided by backend
       },
     });
   };

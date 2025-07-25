@@ -90,8 +90,8 @@ export default function TabsLayout() {
           const chatMessage = JSON.parse(msg.body);
           logger.wsMessage("Chat message received", chatMessage);
 
-          // Create conversation ID
-          const conversationId = `${chatMessage.senderId}-${chatMessage.receiverId}-${chatMessage.productId}`;
+          // Create conversation ID without productId
+          const conversationId = `${chatMessage.senderId}-${chatMessage.receiverId}`;
           dispatch(addMessage({ conversationId, message: chatMessage }));
           dispatch(incrementBadge('chat'));
         } catch (err) {

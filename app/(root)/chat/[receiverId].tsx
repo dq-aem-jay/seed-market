@@ -142,16 +142,14 @@ export default function ChatDetailScreen() {
 
   const fetchChatHistory = async (partnerId: string, prodId: string) => {
     try {
-      const history = await getChatHistory(partnerId);
+      const history = await getChatHistory(partnerId) || [];
       if (history && Array.isArray(history)) {
-        // Filter messages for this specific product and sort by timestamp
-        const filteredMessages = history
-          .filter(msg => msg.productId === parseInt(productId))
-          .sort(
+        // Sort messages by timestamp
+        const sortedMessages = history.sort(
           (a, b) =>
             new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         );
-        setMessages(filteredMessages);
+        setMessages(sortedMessages);
 
         // Scroll to bottom after loading messages
         setTimeout(() => {
@@ -182,7 +180,6 @@ export default function ChatDetailScreen() {
       receiverId: receiverId,
       content: newMessage.trim(),
       timestamp: new Date().toISOString(),
-      productId: parseInt(productId),
     };
 
     // Add message to local state immediately for better UX
@@ -195,11 +192,10 @@ export default function ChatDetailScreen() {
     }, 100);
 
     try {
-      await sendChatMessage({
+      const response = await sendChatMessage({
         senderId: message.senderId,
         receiverId: message.receiverId,
         content: message.content,
-        product: { id: parseInt(productId) },
       });
       console.log("Message sent:", message);
     } catch (error) {

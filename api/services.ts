@@ -270,7 +270,7 @@ export const getMessageById = async (messageId: number): Promise<ChatMessage> =>
   const res = await api.get<{ response: ChatMessage }>(
     `/web/api/v1/chat/message/${messageId}`
   );
-  return res.data?.response;
+  return res.data?.response || null;
 };
 
 // Get full chat history with a partner
@@ -279,6 +279,17 @@ export const getChatHistory = async (partnerId: string): Promise<ChatMessage[]> 
     `/web/api/v1/chat/history/${partnerId}`
   );
   return res.data?.response || [];
+};
+
+// Send chat message
+export const sendChatMessage = async (message: {
+  senderId: string;
+  receiverId: string;
+  content: string;
+  productId?: number;
+}): Promise<any> => {
+  const res = await api.post("/web/api/v1/chat/send", message);
+  return res.data;
 };
 
 
